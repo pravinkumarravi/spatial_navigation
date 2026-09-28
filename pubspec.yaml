@@ -1,0 +1,20 @@
+name: spatial_navigation
+description: A production-grade custom spatial navigation engine for Flutter Android TV applications.
+version: 1.0.0
+homepage: https://github.com/pravinkumarravi/spatial_navigation
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+  flutter: ">=3.19.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  meta: ^1.18.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:

@@ -1,0 +1,21 @@
+name: spatial_navigation_example
+description: Demonstrates spatial_navigation engine features for Android TV applications.
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  spatial_navigation:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
