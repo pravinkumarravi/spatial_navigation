@@ -138,6 +138,8 @@ class _TvScrollableRowState extends State<TvScrollableRow> {
       physics: widget.physics,
       itemExtent: widget.itemExtent,
       shrinkWrap: widget.shrinkWrap,
+      // ignore: deprecated_member_use
+      cacheExtent: 3000.0,
       itemCount: widget.children.length,
       itemBuilder: (context, index) {
         final child = widget.children[index];

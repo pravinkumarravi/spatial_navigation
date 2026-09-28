@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/rendering.dart';
 
@@ -16,6 +17,7 @@ class TvFocusable extends StatefulWidget {
   final FocusNode? focusNode;
   final VoidCallback? onFocused;
   final VoidCallback? onUnfocused;
+  final VoidCallback? onPressed;
   final Widget Function(BuildContext, Widget, bool)? focusBuilder;
 
   const TvFocusable({
@@ -31,6 +33,7 @@ class TvFocusable extends StatefulWidget {
     this.focusNode,
     this.onFocused,
     this.onUnfocused,
+    this.onPressed,
     this.focusBuilder,
   });
 
@@ -40,20 +43,46 @@ class TvFocusable extends StatefulWidget {
 
 class _TvFocusableState extends State<TvFocusable> {
   late FocusNode _focusNode;
+
+  /// Whether this node is currently focused.
+  /// Driven by controller notifications — NOT by FocusNode.hasFocus —
+  /// because FocusNode.requestFocus() silently fails when the FocusNode is
+  /// unattached (e.g. ListView.builder item scrolled out of view).
   bool _isFocused = false;
   Rect? _lastRect;
   bool _registered = false;
+  TvFocusScope? _scope;
+  sn.SpatialNavigationController? _controller;
+  ScrollPosition? _scrollPosition;
 
   @override
   void initState() {
     super.initState();
     _focusNode = widget.focusNode ?? FocusNode();
-    _focusNode.addListener(_onFocusChange);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final newScope = TvFocusScope.of(context);
+    if (newScope?.controller != _controller) {
+      // Detach from old controller
+      _controller?.removeListener(_onControllerChanged);
+      _scope = newScope;
+      _controller = newScope?.controller;
+      // Attach to new controller
+      _controller?.addListener(_onControllerChanged);
+    } else {
+      _scope = newScope;
+    }
+
+    final newPosition = Scrollable.maybeOf(context)?.position;
+    if (newPosition != _scrollPosition) {
+      _scrollPosition?.removeListener(_updateRect);
+      _scrollPosition = newPosition;
+      _scrollPosition?.addListener(_updateRect);
+    }
+
     _updateRegistration();
   }
 
@@ -62,20 +91,20 @@ class _TvFocusableState extends State<TvFocusable> {
     super.didUpdateWidget(oldWidget);
     if (widget.enabled != oldWidget.enabled ||
         widget.visible != oldWidget.visible ||
-        widget.groupId != oldWidget.groupId) {
+        widget.groupId != oldWidget.groupId ||
+        !mapEquals(widget.navigationOverrides, oldWidget.navigationOverrides)) {
       _updateRegistration();
     }
     if (widget.focusNode != oldWidget.focusNode) {
-      _focusNode.removeListener(_onFocusChange);
       _focusNode = widget.focusNode ?? FocusNode();
-      _focusNode.addListener(_onFocusChange);
       _updateRegistration();
     }
   }
 
   @override
   void dispose() {
-    _focusNode.removeListener(_onFocusChange);
+    _scrollPosition?.removeListener(_updateRect);
+    _controller?.removeListener(_onControllerChanged);
     if (widget.focusNode == null) {
       _focusNode.dispose();
     }
@@ -83,19 +112,39 @@ class _TvFocusableState extends State<TvFocusable> {
     super.dispose();
   }
 
-  void _onFocusChange() {
-    final focused = _focusNode.hasFocus;
-    if (focused != _isFocused) {
+  /// Called whenever the SpatialNavigationController notifies listeners.
+  /// Updates _isFocused based on whether this node is the currently focused one.
+  void _onControllerChanged() {
+    if (!mounted) return;
+    final controller = _controller;
+    if (controller == null) return;
+
+    // Check if this node ID is the currently focused node
+    final lastFocused = controller.lastFocusedNode;
+    final isFocused = lastFocused?.id == widget.id;
+
+    if (isFocused != _isFocused) {
+      if (kDebugMode) {
+        debugPrint('[TvFocusable] ${widget.id}: focus=${isFocused ? "ON" : "OFF"}');
+      }
       setState(() {
-        _isFocused = focused;
+        _isFocused = isFocused;
       });
-      if (focused) {
+      if (isFocused) {
         _register();
         widget.onFocused?.call();
-        TvFocusScope.of(context)?.controller.onNodeFocused(widget.id, widget.groupId);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _isFocused) {
+            Scrollable.ensureVisible(
+              context,
+              alignment: 0.25,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+            );
+          }
+        });
       } else {
         widget.onUnfocused?.call();
-        TvFocusScope.of(context)?.controller.onNodeUnfocused(widget.id);
       }
     }
   }
@@ -108,18 +157,27 @@ class _TvFocusableState extends State<TvFocusable> {
   void _unregister() {
     if (!_registered) return;
     _registered = false;
-    TvFocusScope.of(context)?.controller.unregisterNode(widget.id);
+    _scope?.controller.unregisterNode(widget.id);
   }
 
   void _updateRegistration() {
-    final controller = TvFocusScope.of(context)?.controller;
+    final controller = _controller ?? TvFocusScope.of(context)?.controller;
     if (controller == null) return;
 
-    final groupId = widget.groupId ?? TvFocusScope.of(context)?.groupId;
+    final groupId = widget.groupId ?? _scope?.groupId ?? TvFocusScope.of(context)?.groupId;
 
     final node = sn.SpatialNavigationNode(
       id: widget.id,
       rect: _lastRect ?? Rect.zero,
+      rectProvider: () {
+        if (!mounted) return null;
+        final renderObject = context.findRenderObject();
+        if (renderObject is RenderBox && renderObject.attached) {
+          final transform = renderObject.getTransformTo(null);
+          return MatrixUtils.transformRect(transform, renderObject.paintBounds);
+        }
+        return null;
+      },
       enabled: widget.enabled,
       visible: widget.visible,
       row: widget.row,
@@ -127,6 +185,7 @@ class _TvFocusableState extends State<TvFocusable> {
       groupId: groupId,
       focusNode: _focusNode,
       navigationOverrides: widget.navigationOverrides,
+      metadata: widget.onPressed,
     );
     controller.registerNode(node);
     _registered = true;
@@ -154,8 +213,13 @@ class _TvFocusableState extends State<TvFocusable> {
 
   @override
   Widget build(BuildContext context) {
+    // The Focus widget here is kept for completeness (e.g. for consumers that
+    // use widget.focusNode directly), but visual focus state is driven by
+    // _onControllerChanged above, not by FocusNode.hasFocus.
     Widget child = Focus(
       focusNode: _focusNode,
+      canRequestFocus: true,
+      skipTraversal: true,
       onFocusChange: (focused) {
         if (focused) {
           _register();

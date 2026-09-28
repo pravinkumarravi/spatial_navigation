@@ -13,6 +13,8 @@ class SpatialNavigationRegistry extends ChangeNotifier {
 
   SpatialNavigationNode? getNode(String id) => _nodes[id];
 
+  List<SpatialNavigationNode> getAllNodes() => _nodes.values.toList();
+
   Set<String> getGroupNodeIds(String groupId) => _groupNodes[groupId] ?? {};
 
   List<SpatialNavigationNode> getGroupNodes(String groupId) {
@@ -56,6 +58,7 @@ class SpatialNavigationRegistry extends ChangeNotifier {
         row: node.row,
         column: node.column,
         groupId: node.groupId,
+        focusNode: node.focusNode, // Always update – prevents stale FocusNode after rebuilds
         navigationOverrides: node.navigationOverrides,
         metadata: node.metadata,
       );

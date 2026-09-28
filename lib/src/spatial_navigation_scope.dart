@@ -7,12 +7,20 @@ class NavigationBoundaries {
   final bool canExitRight;
   final bool canExitUp;
   final bool canExitDown;
+  final String? nextGroupLeft;
+  final String? nextGroupRight;
+  final String? nextGroupUp;
+  final String? nextGroupDown;
 
   const NavigationBoundaries({
     this.canExitLeft = true,
     this.canExitRight = true,
     this.canExitUp = true,
     this.canExitDown = true,
+    this.nextGroupLeft,
+    this.nextGroupRight,
+    this.nextGroupUp,
+    this.nextGroupDown,
   });
 
   bool canExit(TvNavigationDirection direction) {
@@ -28,17 +36,38 @@ class NavigationBoundaries {
     }
   }
 
+  String? nextGroup(TvNavigationDirection direction) {
+    switch (direction) {
+      case TvNavigationDirection.left:
+        return nextGroupLeft;
+      case TvNavigationDirection.right:
+        return nextGroupRight;
+      case TvNavigationDirection.up:
+        return nextGroupUp;
+      case TvNavigationDirection.down:
+        return nextGroupDown;
+    }
+  }
+
   NavigationBoundaries copyWith({
     bool? canExitLeft,
     bool? canExitRight,
     bool? canExitUp,
     bool? canExitDown,
+    String? nextGroupLeft,
+    String? nextGroupRight,
+    String? nextGroupUp,
+    String? nextGroupDown,
   }) {
     return NavigationBoundaries(
       canExitLeft: canExitLeft ?? this.canExitLeft,
       canExitRight: canExitRight ?? this.canExitRight,
       canExitUp: canExitUp ?? this.canExitUp,
       canExitDown: canExitDown ?? this.canExitDown,
+      nextGroupLeft: nextGroupLeft ?? this.nextGroupLeft,
+      nextGroupRight: nextGroupRight ?? this.nextGroupRight,
+      nextGroupUp: nextGroupUp ?? this.nextGroupUp,
+      nextGroupDown: nextGroupDown ?? this.nextGroupDown,
     );
   }
 }

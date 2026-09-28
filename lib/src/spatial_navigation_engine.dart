@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart';
+import 'dart:math' as math;
+import 'package:flutter/widgets.dart';
 
 import 'spatial_navigation_config.dart';
 import 'spatial_navigation_node.dart';
@@ -22,7 +23,12 @@ class SpatialNavigationEngine extends ChangeNotifier {
     String? fromGroupId,
     SpatialNavigationNode? currentNode,
   }) {
-    currentNode ??= _getCurrentFocusedNode(fromGroupId);
+    _refreshNodeRects();
+    if (currentNode != null) {
+      currentNode = registry.getNode(currentNode.id) ?? currentNode;
+    } else {
+      currentNode = _getCurrentFocusedNode(fromGroupId);
+    }
     
     if (currentNode == null) {
       return SpatialNavigationResult.failure(
@@ -46,7 +52,7 @@ class SpatialNavigationEngine extends ChangeNotifier {
     }
 
     final candidates = _findCandidates(currentNode, direction, fromGroupId);
-    
+
     if (candidates.isEmpty) {
       return SpatialNavigationResult.failure(
         direction: direction,
@@ -68,6 +74,22 @@ class SpatialNavigationEngine extends ChangeNotifier {
     );
   }
 
+  void _refreshNodeRects() {
+    for (final node in registry.getAllNodes()) {
+      final context = node.focusNode.context;
+      if (context != null && context.mounted) {
+        final renderBox = context.findRenderObject();
+        if (renderBox is RenderBox && renderBox.attached) {
+          final transform = renderBox.getTransformTo(null);
+          final globalRect = MatrixUtils.transformRect(transform, renderBox.paintBounds);
+          if (globalRect != node.rect) {
+            registry.updateNodeRect(node.id, globalRect);
+          }
+        }
+      }
+    }
+  }
+
   SpatialNavigationNode? _getCurrentFocusedNode(String? groupId) {
     if (groupId != null) {
       return registry.getFocusedNode(groupId);
@@ -87,12 +109,79 @@ class SpatialNavigationEngine extends ChangeNotifier {
         ? registry.getGroupNodes(groupId)
         : registry.getVisibleEnabledNodes();
 
-    return allNodes.where((node) {
+    final candidates = allNodes.where((node) {
       if (node.id == current.id) return false;
       if (!node.isFocusable) return false;
       if (!current.isInDirection(node, direction)) return false;
       return true;
     }).toList();
+
+    // For horizontal navigation within rows, if there are candidates sharing the same row corridor
+    // (overlap >= 0.6), restrict to row corridor so left/right moves purely along the shelf.
+    if (direction.isHorizontal) {
+      final inCorridor = candidates.where((c) => current.getOverlap(c, direction) >= 0.6).toList();
+      if (inCorridor.isNotEmpty) {
+        return inCorridor;
+      }
+    }
+
+    return candidates;
+  }
+
+  bool _isAdjacentSlice(
+    SpatialNavigationNode current,
+    SpatialNavigationNode candidate,
+    TvNavigationDirection direction,
+  ) {
+    if (direction.isVertical) {
+      final refA = current.left;
+      final refB = current.right;
+      final sibA = candidate.left;
+      final sibB = candidate.right;
+      final threshold = (refB - refA) * config.adjacentSliceThreshold;
+      final intersection = math.max(0.0, math.min(refB, sibB) - math.max(refA, sibA));
+      return intersection >= threshold;
+    } else {
+      final refA = current.top;
+      final refB = current.bottom;
+      final sibA = candidate.top;
+      final sibB = candidate.bottom;
+      final threshold = (refB - refA) * config.adjacentSliceThreshold;
+      final intersection = math.max(0.0, math.min(refB, sibB) - math.max(refA, sibA));
+      return intersection >= threshold;
+    }
+  }
+
+  double _getPrimaryAxisDistance(
+    SpatialNavigationNode current,
+    SpatialNavigationNode candidate,
+    TvNavigationDirection direction,
+  ) {
+    return current.getPrimaryDistance(candidate, direction);
+  }
+
+  double _getSecondaryAxisDistance(
+    SpatialNavigationNode current,
+    SpatialNavigationNode candidate,
+    TvNavigationDirection direction,
+  ) {
+    if (direction.isVertical) {
+      final d1 = (candidate.left - current.left).abs();
+      final d2 = (candidate.left - current.right).abs();
+      final d3 = (candidate.right - current.left).abs();
+      final d4 = (candidate.right - current.right).abs();
+      final hasOverlap = math.max(current.left, candidate.left) < math.min(current.right, candidate.right);
+      if (hasOverlap) return 0.0;
+      return math.min(math.min(d1, d2), math.min(d3, d4));
+    } else {
+      final d1 = (candidate.top - current.top).abs();
+      final d2 = (candidate.top - current.bottom).abs();
+      final d3 = (candidate.bottom - current.top).abs();
+      final d4 = (candidate.bottom - current.bottom).abs();
+      final hasOverlap = math.max(current.top, candidate.top) < math.min(current.bottom, candidate.bottom);
+      if (hasOverlap) return 0.0;
+      return math.min(math.min(d1, d2), math.min(d3, d4));
+    }
   }
 
   List<SpatialNavigationCandidate> _scoreCandidates(
@@ -101,32 +190,25 @@ class SpatialNavigationEngine extends ChangeNotifier {
     TvNavigationDirection direction,
   ) {
     return candidates.map((candidate) {
-      final primaryDistance = current.getPrimaryDistance(candidate, direction);
-      final secondaryDistance = current.getSecondaryDistance(candidate, direction);
+      final primaryDistance = _getPrimaryAxisDistance(current, candidate, direction);
+      final secondaryDistance = _getSecondaryAxisDistance(current, candidate, direction);
+      final isAdjacent = _isAdjacentSlice(current, candidate, direction);
       final overlap = current.getOverlap(candidate, direction);
-      
+
+      // Norigin-aligned distance points:
+      // If adjacent, primary axis distance is weighted by MAIN_COORDINATE_WEIGHT (5).
+      // If diagonal (not adjacent), secondary axis distance is weighted by MAIN_COORDINATE_WEIGHT (5).
+      final totalDistancePoints = isAdjacent
+          ? primaryDistance * config.primaryWeight + secondaryDistance * config.secondaryWeight
+          : secondaryDistance * config.primaryWeight + primaryDistance * config.secondaryWeight;
+
+      final priority = (totalDistancePoints + 1.0) / (isAdjacent ? config.adjacentSliceWeight : 1.0);
+
       double alignment = 0;
       if (direction.isHorizontal) {
         alignment = (candidate.center.dy - current.center.dy).abs();
       } else {
         alignment = (candidate.center.dx - current.center.dx).abs();
-      }
-
-      double score = 0;
-      score += primaryDistance * config.primaryWeight;
-      score += secondaryDistance * config.secondaryWeight;
-      
-      if (overlap >= config.minOverlapThreshold) {
-        score -= config.overlapBonus * overlap;
-      }
-      
-      score -= config.alignmentBonus / (1 + alignment);
-
-      if (primaryDistance > config.maxPrimaryDistance) {
-        score += (primaryDistance - config.maxPrimaryDistance) * 1000;
-      }
-      if (secondaryDistance > config.maxSecondaryDistance) {
-        score += (secondaryDistance - config.maxSecondaryDistance) * 100;
       }
 
       return SpatialNavigationCandidate(
@@ -135,13 +217,19 @@ class SpatialNavigationEngine extends ChangeNotifier {
         secondaryDistance: secondaryDistance,
         overlap: overlap,
         alignment: alignment,
-        score: score,
+        score: priority,
         registrationOrder: candidate.registrationOrder,
       );
     }).toList();
   }
 
   int _compareCandidates(SpatialNavigationCandidate a, SpatialNavigationCandidate b) {
+    final aInCorridor = a.overlap >= 0.6;
+    final bInCorridor = b.overlap >= 0.6;
+    if (aInCorridor != bInCorridor) {
+      return aInCorridor ? -1 : 1;
+    }
+
     final scoreDiff = a.score - b.score;
     if (scoreDiff.abs() > config.tieBreakerThreshold) {
       return scoreDiff > 0 ? 1 : -1;

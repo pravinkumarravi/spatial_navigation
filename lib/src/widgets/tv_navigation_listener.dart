@@ -31,73 +31,107 @@ class TvNavigationListener extends StatefulWidget {
 }
 
 class _TvNavigationListenerState extends State<TvNavigationListener> {
-  late FocusNode _focusNode;
-
   @override
   void initState() {
     super.initState();
-    _focusNode = widget.focusNode ?? FocusNode();
-    if (widget.autofocus) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _focusNode.requestFocus();
-      });
-    }
+    HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
   }
 
   @override
   void dispose() {
-    if (widget.focusNode == null) {
-      _focusNode.dispose();
-    }
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     super.dispose();
+  }
+
+  bool _handleGlobalKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return false;
+    }
+    final result = _handleKeyEvent(event);
+    return result == KeyEventResult.handled;
   }
 
   @override
   Widget build(BuildContext context) {
+    // A root Focus with autofocus:true creates the live focus tree anchor that
+    // Flutter's focus system requires. Without a focused ancestor, child Focus
+    // nodes' requestFocus() calls are silently dropped.
+    // We pass KeyEventResult.ignored so this node never consumes key events;
+    // all key handling happens via HardwareKeyboard.instance above.
     return Focus(
-      focusNode: _focusNode,
-      autofocus: widget.autofocus,
-      onKeyEvent: _handleKeyEvent,
+      autofocus: true,
+      skipTraversal: true,
+      onKeyEvent: (_, __) => KeyEventResult.ignored,
       child: widget.child,
     );
   }
 
-  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
-      return KeyEventResult.ignored;
-    }
-
+  KeyEventResult _handleKeyEvent(KeyEvent event) {
     final logicalKey = event.logicalKey;
+    final physicalKey = event.physicalKey;
+    final keyId = logicalKey.keyId;
+    final usbHid = physicalKey.usbHidUsage;
+
     sn.TvNavigationDirection? direction;
     bool isSelect = false;
     bool isBack = false;
 
     if (logicalKey == LogicalKeyboardKey.arrowRight ||
         logicalKey == LogicalKeyboardKey.keyD ||
-        logicalKey == LogicalKeyboardKey.gameButton14) {
+        logicalKey == LogicalKeyboardKey.gameButton14 ||
+        physicalKey == PhysicalKeyboardKey.arrowRight ||
+        keyId == 0x00200000016 ||
+        keyId == 0x00100000016 ||
+        usbHid == 0x0007004f) {
       direction = sn.TvNavigationDirection.right;
     } else if (logicalKey == LogicalKeyboardKey.arrowLeft ||
                logicalKey == LogicalKeyboardKey.keyA ||
-               logicalKey == LogicalKeyboardKey.gameButton15) {
+               logicalKey == LogicalKeyboardKey.gameButton15 ||
+               physicalKey == PhysicalKeyboardKey.arrowLeft ||
+               keyId == 0x00200000015 ||
+               keyId == 0x00100000015 ||
+               usbHid == 0x00070050) {
       direction = sn.TvNavigationDirection.left;
     } else if (logicalKey == LogicalKeyboardKey.arrowUp ||
                logicalKey == LogicalKeyboardKey.keyW ||
-               logicalKey == LogicalKeyboardKey.gameButton12) {
+               logicalKey == LogicalKeyboardKey.gameButton12 ||
+               physicalKey == PhysicalKeyboardKey.arrowUp ||
+               keyId == 0x00200000013 ||
+               keyId == 0x00100000013 ||
+               usbHid == 0x00070052) {
       direction = sn.TvNavigationDirection.up;
     } else if (logicalKey == LogicalKeyboardKey.arrowDown ||
                logicalKey == LogicalKeyboardKey.keyS ||
-               logicalKey == LogicalKeyboardKey.gameButton13) {
+               logicalKey == LogicalKeyboardKey.gameButton13 ||
+               physicalKey == PhysicalKeyboardKey.arrowDown ||
+               keyId == 0x00200000014 ||
+               keyId == 0x00100000014 ||
+               usbHid == 0x00070051) {
       direction = sn.TvNavigationDirection.down;
     } else if (logicalKey == LogicalKeyboardKey.enter ||
                logicalKey == LogicalKeyboardKey.numpadEnter ||
                logicalKey == LogicalKeyboardKey.select ||
                logicalKey == LogicalKeyboardKey.space ||
                logicalKey == LogicalKeyboardKey.gameButtonA ||
-               logicalKey == LogicalKeyboardKey.gameButtonSelect) {
+               logicalKey == LogicalKeyboardKey.gameButtonSelect ||
+               logicalKey == LogicalKeyboardKey.gameButtonStart ||
+               physicalKey == PhysicalKeyboardKey.enter ||
+               physicalKey == PhysicalKeyboardKey.numpadEnter ||
+               physicalKey == PhysicalKeyboardKey.select ||
+               keyId == 0x00200000017 ||
+               keyId == 0x00100000017 ||
+               usbHid == 0x00070028 ||
+               usbHid == 0x00070058) {
       isSelect = true;
     } else if (logicalKey == LogicalKeyboardKey.escape ||
                logicalKey == LogicalKeyboardKey.gameButtonB ||
-               logicalKey == LogicalKeyboardKey.goBack) {
+               logicalKey == LogicalKeyboardKey.goBack ||
+               logicalKey == LogicalKeyboardKey.backspace ||
+               physicalKey == PhysicalKeyboardKey.escape ||
+               physicalKey == PhysicalKeyboardKey.backspace ||
+               keyId == 0x00200000004 ||
+               keyId == 0x00100000004 ||
+               usbHid == 0x00070029) {
       isBack = true;
     }
 
@@ -121,6 +155,8 @@ class _TvNavigationListenerState extends State<TvNavigationListener> {
 
   KeyEventResult _handleSelect() {
     widget.onSelect?.call();
+    final groupId = widget.groupId ?? TvFocusScope.of(context)?.groupId;
+    widget.controller.activateCurrentNode(groupId);
     return KeyEventResult.handled;
   }
 
@@ -165,23 +201,69 @@ class TvKeyboardListener extends StatelessWidget {
         }
 
         final logicalKey = event.logicalKey;
+        final physicalKey = event.physicalKey;
+        final keyId = logicalKey.keyId;
+        final usbHid = physicalKey.usbHidUsage;
+
         sn.TvNavigationDirection? direction;
         bool isSelect = false;
         bool isBack = false;
 
-        if (logicalKey == LogicalKeyboardKey.arrowRight) {
+        if (logicalKey == LogicalKeyboardKey.arrowRight ||
+            logicalKey == LogicalKeyboardKey.keyD ||
+            logicalKey == LogicalKeyboardKey.gameButton14 ||
+            physicalKey == PhysicalKeyboardKey.arrowRight ||
+            keyId == 0x00200000016 ||
+            keyId == 0x00100000016 ||
+            usbHid == 0x0007004f) {
           direction = sn.TvNavigationDirection.right;
-        } else if (logicalKey == LogicalKeyboardKey.arrowLeft) {
+        } else if (logicalKey == LogicalKeyboardKey.arrowLeft ||
+                   logicalKey == LogicalKeyboardKey.keyA ||
+                   logicalKey == LogicalKeyboardKey.gameButton15 ||
+                   physicalKey == PhysicalKeyboardKey.arrowLeft ||
+                   keyId == 0x00200000015 ||
+                   keyId == 0x00100000015 ||
+                   usbHid == 0x00070050) {
           direction = sn.TvNavigationDirection.left;
-        } else if (logicalKey == LogicalKeyboardKey.arrowUp) {
+        } else if (logicalKey == LogicalKeyboardKey.arrowUp ||
+                   logicalKey == LogicalKeyboardKey.keyW ||
+                   logicalKey == LogicalKeyboardKey.gameButton12 ||
+                   physicalKey == PhysicalKeyboardKey.arrowUp ||
+                   keyId == 0x00200000013 ||
+                   keyId == 0x00100000013 ||
+                   usbHid == 0x00070052) {
           direction = sn.TvNavigationDirection.up;
-        } else if (logicalKey == LogicalKeyboardKey.arrowDown) {
+        } else if (logicalKey == LogicalKeyboardKey.arrowDown ||
+                   logicalKey == LogicalKeyboardKey.keyS ||
+                   logicalKey == LogicalKeyboardKey.gameButton13 ||
+                   physicalKey == PhysicalKeyboardKey.arrowDown ||
+                   keyId == 0x00200000014 ||
+                   keyId == 0x00100000014 ||
+                   usbHid == 0x00070051) {
           direction = sn.TvNavigationDirection.down;
         } else if (logicalKey == LogicalKeyboardKey.enter ||
                    logicalKey == LogicalKeyboardKey.numpadEnter ||
-                   logicalKey == LogicalKeyboardKey.select) {
+                   logicalKey == LogicalKeyboardKey.select ||
+                   logicalKey == LogicalKeyboardKey.space ||
+                   logicalKey == LogicalKeyboardKey.gameButtonA ||
+                   logicalKey == LogicalKeyboardKey.gameButtonSelect ||
+                   physicalKey == PhysicalKeyboardKey.enter ||
+                   physicalKey == PhysicalKeyboardKey.numpadEnter ||
+                   physicalKey == PhysicalKeyboardKey.select ||
+                   keyId == 0x00200000017 ||
+                   keyId == 0x00100000017 ||
+                   usbHid == 0x00070028 ||
+                   usbHid == 0x00070058) {
           isSelect = true;
-        } else if (logicalKey == LogicalKeyboardKey.escape) {
+        } else if (logicalKey == LogicalKeyboardKey.escape ||
+                   logicalKey == LogicalKeyboardKey.gameButtonB ||
+                   logicalKey == LogicalKeyboardKey.goBack ||
+                   logicalKey == LogicalKeyboardKey.backspace ||
+                   physicalKey == PhysicalKeyboardKey.escape ||
+                   physicalKey == PhysicalKeyboardKey.backspace ||
+                   keyId == 0x00200000004 ||
+                   keyId == 0x00100000004 ||
+                   usbHid == 0x00070029) {
           isBack = true;
         }
 
@@ -192,6 +274,8 @@ class TvKeyboardListener extends StatelessWidget {
           return KeyEventResult.handled;
         } else if (isSelect) {
           onSelect?.call();
+          final effectiveGroupId = groupId ?? TvFocusScope.of(context)?.groupId;
+          controller.activateCurrentNode(effectiveGroupId);
           return KeyEventResult.handled;
         } else if (isBack) {
           onBack?.call();

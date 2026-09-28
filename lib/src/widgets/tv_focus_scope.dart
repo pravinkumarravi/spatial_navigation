@@ -70,8 +70,12 @@ class _TvNavigationScopeState extends State<TvNavigationScope> {
     _resolvedGroupId = widget.groupId ?? 'scope_${identityHashCode(this)}';
     _registerGroup();
     if (widget.autoFocus) {
+      // Two post-frame callbacks: first allows TvFocusable to mount & layout;
+      // second ensures _updateRect() has registered nodes before auto-focus.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _autoFocus();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _autoFocus();
+        });
       });
     }
   }
@@ -124,8 +128,9 @@ class _TvNavigationScopeState extends State<TvNavigationScope> {
   void _autoFocus() {
     if (widget.initialFocusId != null) {
       final node = widget.controller.registry.getNode(widget.initialFocusId!);
-      if (node != null && node.isFocusable) {
+      if (node != null && node.enabled && node.visible) {
         node.focusNode.requestFocus();
+        widget.controller.onNodeFocused(node.id, _resolvedGroupId);
         return;
       }
     }
@@ -133,8 +138,9 @@ class _TvNavigationScopeState extends State<TvNavigationScope> {
     final preferredEntry = widget.preferredEntryNodeId;
     if (preferredEntry != null) {
       final node = widget.controller.registry.getNode(preferredEntry);
-      if (node != null && node.isFocusable) {
+      if (node != null && node.enabled && node.visible) {
         node.focusNode.requestFocus();
+        widget.controller.onNodeFocused(node.id, _resolvedGroupId);
         return;
       }
     }

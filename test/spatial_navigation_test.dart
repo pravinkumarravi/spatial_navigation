@@ -185,6 +185,59 @@ void main() {
       expect(result.success, isTrue);
       expect(result.targetNode?.id, 'C');
     });
+
+    test('horizontal navigation stays within current row and moves across all cards sequentially', () {
+      // Row 1: cards 0, 1, 2, 3 at Y: 100..200
+      final focusR1_0 = FocusNode();
+      final focusR1_1 = FocusNode();
+      final focusR1_2 = FocusNode();
+      final focusR1_3 = FocusNode();
+      // Row 2: cards 0, 1, 2, 3 at Y: 300..400
+      final focusR2_0 = FocusNode();
+      final focusR2_1 = FocusNode();
+      final focusR2_2 = FocusNode();
+
+      addTearDown(() {
+        focusR1_0.dispose();
+        focusR1_1.dispose();
+        focusR1_2.dispose();
+        focusR1_3.dispose();
+        focusR2_0.dispose();
+        focusR2_1.dispose();
+        focusR2_2.dispose();
+      });
+
+      final r = SpatialNavigationRegistry();
+      addTearDown(r.dispose);
+      final eng = SpatialNavigationEngine(registry: r);
+      addTearDown(eng.dispose);
+
+      r.registerNode(SpatialNavigationNode(id: 'r1_0', rect: const Rect.fromLTWH(0, 100, 100, 100), focusNode: focusR1_0));
+      r.registerNode(SpatialNavigationNode(id: 'r1_1', rect: const Rect.fromLTWH(150, 100, 100, 100), focusNode: focusR1_1));
+      r.registerNode(SpatialNavigationNode(id: 'r1_2', rect: const Rect.fromLTWH(300, 100, 100, 100), focusNode: focusR1_2));
+      r.registerNode(SpatialNavigationNode(id: 'r1_3', rect: const Rect.fromLTWH(450, 100, 100, 100), focusNode: focusR1_3));
+
+      // Row 2 has a node with slightly closer X coordinate to r1_1
+      r.registerNode(SpatialNavigationNode(id: 'r2_0', rect: const Rect.fromLTWH(0, 300, 100, 100), focusNode: focusR2_0));
+      r.registerNode(SpatialNavigationNode(id: 'r2_1', rect: const Rect.fromLTWH(140, 300, 100, 100), focusNode: focusR2_1));
+      r.registerNode(SpatialNavigationNode(id: 'r2_2', rect: const Rect.fromLTWH(290, 300, 100, 100), focusNode: focusR2_2));
+
+      // 0 -> 1
+      var res = eng.navigate(TvNavigationDirection.right, currentNode: r.getNode('r1_0'));
+      expect(res.targetNode?.id, 'r1_1');
+
+      // 1 -> 2 (must NOT jump to r2_2 or r2_1!)
+      res = eng.navigate(TvNavigationDirection.right, currentNode: r.getNode('r1_1'));
+      expect(res.targetNode?.id, 'r1_2');
+
+      // 2 -> 3
+      res = eng.navigate(TvNavigationDirection.right, currentNode: r.getNode('r1_2'));
+      expect(res.targetNode?.id, 'r1_3');
+
+      // 3 -> right at end of row: should NOT jump down to row 2!
+      res = eng.navigate(TvNavigationDirection.right, currentNode: r.getNode('r1_3'));
+      expect(res.success, isFalse, reason: 'Should not jump down to row 2 at the end of row 1');
+    });
   });
 
   group('SpatialNavigationController & Shared Registry', () {
